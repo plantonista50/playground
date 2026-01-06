@@ -323,7 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resetFileInput(); chatInput.value = ''; chatInput.style.height = 'auto';
     }
 
-    // --- LÓGICA DO MICROFONE CORRIGIDA PARA CHROME/HTTPS ---
+    // --- LÓGICA DO MICROFONE COM DIAGNÓSTICO DE ERRO ---
     if (btnMic) btnMic.addEventListener('click', async () => {
         if (isRecording) {
             if (!recorder) return;
@@ -364,10 +364,18 @@ document.addEventListener('DOMContentLoaded', () => {
             chatInput.placeholder = "Gravando... (Clique para parar)";
 
         } catch (e) {
-            console.error(e);
-            let msg = "Erro ao acessar microfone.";
-            if (e.name === 'NotAllowedError') msg = "Permissão negada. Clique no 🔒 da URL e libere o microfone.";
-            if (e.message.includes('HTTPS')) msg = "O Chrome exige HTTPS para usar o microfone.";
+            console.error("Erro Mic:", e);
+            // --- AQUI ESTÁ A CORREÇÃO: Mostra o erro exato ---
+            let msg = "Erro técnico: " + (e.message || e.name);
+            
+            if (e.name === 'NotAllowedError' || e.message.includes('Permission denied')) {
+                msg = "Permissão negada. Clique no ícone de cadeado 🔒 na barra de endereço e ative o Microfone.";
+            } else if (e.name === 'NotFoundError' || e.message.includes('device not found')) {
+                msg = "Nenhum microfone foi detectado no seu sistema.";
+            } else if (e.name === 'NotReadableError') {
+                msg = "O microfone pode estar sendo usado por outro programa (Zoom, Meet, etc).";
+            }
+            
             alert(msg);
         }
     });
@@ -405,111 +413,4 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text && selectedFiles.length === 0) return;
         welcomeScreen.style.display = 'none';
         
-        const wrapper = document.createElement('div'); wrapper.className = 'message-wrapper user';
-        let html = selectedFiles.map(f => `<div style="font-size:0.8rem;color:#a8c7fa;margin-bottom:4px">📎 ${f.name}</div>`).join('');
-        if(text) html += `<div>${text.replace(/\n/g,'<br>')}</div>`;
-        wrapper.innerHTML = `<div class="message-content">${html}</div><div class="avatar-icon user">VC</div>`;
-        chatHistory.appendChild(wrapper);
-        chatInput.value = ''; chatInput.style.height = 'auto';
-        const filesToSend = [...selectedFiles]; resetFileInput();
-        
-        const ldId = 'ld-'+Date.now();
-        const ldDiv = document.createElement('div'); ldDiv.className = 'message-wrapper ai'; ldDiv.id = ldId;
-        ldDiv.innerHTML = `<div class="avatar-icon ai"><span class="material-symbols-outlined">smart_toy</span></div><div class="message-content">...</div>`;
-        chatHistory.appendChild(ldDiv);
-        chatHistory.scrollTop = chatHistory.scrollHeight;
-
-        const formData = new FormData();
-        
-        // --- EVITA DUPLICIDADE DE ARQUIVOS (CORREÇÃO DE COBRANÇA) ---
-        filesToSend.forEach((f, i) => formData.append(`file_${i}`, f));
-
-        if(text) formData.append('textoBruto', text);
-        const userEmail = currentUser ? currentUser.email : "anonimo_erro";
-        formData.append('user_email', userEmail); 
-
-        try {
-            const res = await fetch(TOOLS[currentTool].webhook, { method: 'POST', body: formData });
-            if (!res.ok) throw new Error(`Erro ${res.status}`);
-            
-            const data = await res.json();
-            const aiText = data.message || data.msg || data.resumoCompleto || data.text || (data.length ? JSON.stringify(data) : "Processamento concluído.");
-            document.getElementById(ldId)?.remove();
-            const aiWrapper = document.createElement('div'); aiWrapper.className = 'message-wrapper ai';
-            aiWrapper.innerHTML = `<div class="avatar-icon ai"><span class="material-symbols-outlined">smart_toy</span></div><div class="message-content"><pre>${aiText}</pre><div style="text-align:right"><span class="material-symbols-outlined" style="cursor:pointer;color:#666" onclick="copyText(this)">content_copy</span></div></div>`;
-            chatHistory.appendChild(aiWrapper);
-        } catch (e) {
-            document.getElementById(ldId)?.remove();
-            const errDiv = document.createElement('div'); errDiv.className = 'message-wrapper ai';
-            errDiv.innerHTML = `<div class="avatar-icon ai">⚠️</div><div class="message-content">Erro: ${e.message}</div>`;
-            chatHistory.appendChild(errDiv);
-        }
-        chatHistory.scrollTop = chatHistory.scrollHeight;
-    }
-    window.copyText = function(btn) {
-        const pre = btn.closest('.message-content').querySelector('pre');
-        navigator.clipboard.writeText(pre.textContent).then(() => { btn.style.color='#4caf50'; setTimeout(()=>btn.style.color='#666',2000); });
-    };
-
-    // ============================================================
-    // 5. MODO NATAL (Sem Ano Novo)
-    // ============================================================
-    const themeBtn = document.getElementById('theme-toggle-btn');
-    const themeIcon = document.getElementById('theme-icon');
-    const themeText = document.getElementById('theme-text');
-    let isXmas = false;
-
-    function startSnowJS({ duration = 5000, count = 80, sizeScale = 0.8 } = {}) {
-        const overlay = document.querySelector('.snow-overlay');
-        if (!overlay) return;
-        overlay.innerHTML = '';
-        overlay.style.opacity = '1';
-
-        const baseOriginal = 6;
-        const baseSize = baseOriginal * sizeScale;
-
-        for (let i = 0; i < count; i++) {
-            const flake = document.createElement('div');
-            flake.className = 'snow-flake';
-            const randomFactor = 0.6 + Math.random() * 0.8; 
-            const size = Math.max(1, baseSize * randomFactor);
-            flake.style.width = size + 'px';
-            flake.style.height = size + 'px';
-            flake.style.left = (Math.random() * 100) + 'vw';
-            flake.style.top = (-5 - Math.random() * 20) + 'vh';
-            flake.style.opacity = (0.5 + Math.random() * 0.5).toString();
-            const delay = (Math.random() * 0.4).toFixed(2);
-            flake.style.animation = `fall-js ${duration}ms linear ${delay}s forwards`;
-            overlay.appendChild(flake);
-        }
-        setTimeout(() => { overlay.innerHTML = ''; overlay.style.opacity = ''; }, duration + 600);
-    }
-
-    const bodyObserver = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-            if (m.attributeName === 'class') {
-                const active = document.body.classList.contains('xmas-mode');
-                if (active) startSnowJS({ duration: 5000, count: 150, sizeScale: 0.8 });
-            }
-        }
-    });
-    bodyObserver.observe(document.body, { attributes: true });
-
-    if (themeBtn) {
-        themeBtn.addEventListener('click', () => {
-            isXmas = !isXmas;
-            document.body.classList.toggle('xmas-mode');
-
-            if (isXmas) {
-                themeIcon.textContent = 'ac_unit';
-                themeText.textContent = 'Modo Natal';
-                themeBtn.style.color = 'var(--accent-color)';
-                startSnowJS({ duration: 5000, count: 150, sizeScale: 0.8 });
-            } else {
-                themeIcon.textContent = 'settings';
-                themeText.textContent = 'Modo Dark';
-                themeBtn.style.color = '';
-            }
-        });
-    }
-});
+        const wrapper = document.createElement('div'); wrapper.
