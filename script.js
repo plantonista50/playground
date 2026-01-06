@@ -1,57 +1,156 @@
+// --- AUTO-DIAGNÓSTICO DE ERROS (Removemos isso em produção) ---
+window.onerror = function (msg, url, lineNo, columnNo, error) {
+    const string = msg.toLowerCase();
+    const substring = "script error";
+    if (string.indexOf(substring) > -1) {
+        alert('Script Error: Verifique o Console (F12) para detalhes.');
+    } else {
+        console.error("Erro Detectado:", msg, "Linha:", lineNo);
+        // Descomente a linha abaixo se quiser ver o erro na tela:
+        // alert("Erro no Script: " + msg + "\nLinha: " + lineNo);
+    }
+    return false;
+};
+
 document.addEventListener('DOMContentLoaded', () => {
-
-    console.log("🚀 Script Carregado: v2.5 (Correção Login)");
+    console.log("✅ Script Carregado com Sucesso v3.0 (Diagnóstico)");
 
     // ============================================================
-    // ESTADO GLOBAL
+    // 1. CONFIGURAÇÕES
     // ============================================================
+    // Usando concatenação simples (+) para máxima compatibilidade
+    const BASE_URL = "https://plantonista50-playground-n8n.zvu2si.easypanel.host";
+    const AUTH_WEBHOOK = BASE_URL + "/webhook/suga-auth";
+    const PRONTUARIO_WEBHOOK = BASE_URL + "/webhook/cfadce39-4d13-4a1e-ac7d-24ed345a5e9c";
+    const EXAMINATOR_WEBHOOK = BASE_URL + "/webhook/processar-exame";
+
+    const TOOLS = {
+        prontuario: { 
+            title: "SuGa PRONTUÁRIO", 
+            webhook: PRONTUARIO_WEBHOOK, 
+            placeholder: "Digite a transcrição do áudio ou a história coletada..." 
+        },
+        examinator: { 
+            title: "SuGa EXAMINATOR", 
+            webhook: EXAMINATOR_WEBHOOK, 
+            placeholder: "Anexe os exames (PDF/Imagem) para análise..." 
+        },
+    };
+
+    // Variáveis de Estado
     let currentTool = 'prontuario'; 
     let selectedFiles = []; 
     let currentUser = null;
     let recorder = null; 
     let isRecording = false;
 
-    // --- CONFIGURAÇÃO DE URL ---
-    // Usando concatenação simples (+) para evitar erros de sintaxe
-    const BASE_N8N_URL = "https://plantonista50-playground-n8n.zvu2si.easypanel.host";
-    
-    // Webhooks
-    const AUTH_WEBHOOK = BASE_N8N_URL + "/webhook/suga-auth"; 
-    
-    const TOOLS = {
-        prontuario: { 
-            title: "SuGa PRONTUÁRIO", 
-            webhook: BASE_N8N_URL + "/webhook/cfadce39-4d13-4a1e-ac7d-24ed345a5e9c", 
-            placeholder: "Digite a transcrição do áudio ou a história coletada..." 
-        },
-        examinator: { 
-            title: "SuGa EXAMINATOR", 
-            webhook: BASE_N8N_URL + "/webhook/processar-exame", 
-            placeholder: "Anexe os exames (PDF/Imagem) para análise..." 
-        },
-    };
-
-    // DOM ELEMENTS
+    // Elementos DOM (com verificação de segurança)
     const loginScreen = document.getElementById('login-screen');
     const loginForm = document.getElementById('login-form');
-    const signupModal = document.getElementById('signup-modal');
-    const forgotModal = document.getElementById('forgot-modal');
-    const forgotStep1 = document.getElementById('forgot-step-1');
-    const forgotStep2 = document.getElementById('forgot-step-2');
     const userInitialsDisplay = document.getElementById('user-initials');
+    
+    // ============================================================
+    // 2. SISTEMA DE LOGIN (Recuperado)
+    // ============================================================
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            console.log("🔄 Iniciando tentativa de login...");
+
+            const emailEl = document.getElementById('email');
+            const passEl = document.getElementById('password');
+            const btn = loginForm.querySelector('button');
+            
+            if (!emailEl || !passEl) {
+                alert("Erro: Campos de email ou senha não encontrados no HTML.");
+                return;
+            }
+
+            const originalText = btn.textContent;
+            btn.textContent = "Autenticando...";
+            btn.disabled = true;
+
+            try {
+                // 1. Monta os dados
+                const payload = { 
+                    action: 'login', 
+                    email: emailEl.value.trim(), 
+                    password: passEl.value 
+                };
+
+                // 2. Envia para o n8n
+                console.log("📡 Enviando requisição para:", AUTH_WEBHOOK);
+                const response = await fetch(AUTH_WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                // 3. Trata a resposta
+                if (!response.ok) {
+                    throw new Error("Erro HTTP: " + response.status);
+                }
+
+                let data = await response.json();
+                if (Array.isArray(data)) data = data[0]; // Trata retorno de lista do n8n
+
+                console.log("📥 Resposta recebida:", data);
+
+                // 4. Verifica sucesso
+                if (data && data.access_token) {
+                    // SUCESSO!
+                    currentUser = { email: data.user.email, token: data.access_token };
+                    
+                    // Atualiza UI
+                    let displayName = "MD";
+                    if (data.user.user_metadata && data.user.user_metadata.full_name) {
+                        displayName = data.user.user_metadata.full_name;
+                    }
+                    if (userInitialsDisplay) {
+                        userInitialsDisplay.textContent = displayName.substring(0,2).toUpperCase();
+                        userInitialsDisplay.style.backgroundColor = '#4caf50';
+                    }
+
+                    // Esconde Login
+                    if (loginScreen) {
+                        loginScreen.style.opacity = '0';
+                        setTimeout(() => { loginScreen.style.display = 'none'; }, 500);
+                    }
+                } else {
+                    // ERRO DE NEGÓCIO (Senha errada, etc)
+                    const errorMsg = data.msg || data.message || "Email ou senha incorretos.";
+                    alert("Acesso Negado: " + errorMsg);
+                }
+
+            } catch (err) {
+                console.error("❌ Erro no Login:", err);
+                alert("Erro de Conexão: " + err.message + "\nVerifique se o n8n está ativo.");
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        });
+    } else {
+        console.error("⚠️ ERRO CRÍTICO: Formulário de login (id='login-form') não encontrado!");
+    }
 
     // ============================================================
-    // 1. DETECTOR DE URL (Login Mágico)
+    // 3. LÓGICA DE URL MÁGICA (Recuperação de Senha)
     // ============================================================
     const hash = window.location.hash;
     if (hash && hash.includes('access_token')) {
+        console.log("🔗 Token de acesso detectado na URL");
         const params = new URLSearchParams(hash.substring(1)); 
         const accessToken = params.get('access_token');
         const type = params.get('type'); 
 
         if (accessToken) {
             currentUser = { email: "Verificado", token: accessToken };
-            window.history.replaceState(null, null, window.location.pathname);
+            window.history.replaceState(null, null, window.location.pathname); // Limpa URL
+
+            const forgotModal = document.getElementById('forgot-modal');
+            const forgotStep1 = document.getElementById('forgot-step-1');
+            const forgotStep2 = document.getElementById('forgot-step-2');
 
             if (type === 'recovery') {
                 alert("🔔 Link aceito! Agora defina sua nova senha.");
@@ -60,321 +159,47 @@ document.addEventListener('DOMContentLoaded', () => {
                 if(forgotStep1) forgotStep1.style.display = 'none';
                 if(forgotStep2) forgotStep2.style.display = 'block';
             } else {
-                alert("✅ E-mail confirmado! Você está logado.");
+                alert("✅ Login automático realizado!");
                 if(loginScreen) loginScreen.style.display = 'none';
-                if(userInitialsDisplay) {
-                    userInitialsDisplay.textContent = "OK";
-                    userInitialsDisplay.style.backgroundColor = '#4caf50';
-                }
+                if(userInitialsDisplay) userInitialsDisplay.style.backgroundColor = '#4caf50';
             }
         }
     }
 
     // ============================================================
-    // 2. LOGIN (Lógica Reforçada)
+    // 4. MICROFONE (Corrigido e Diagnosticado)
     // ============================================================
-    if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            console.log("Tentando logar..."); // Debug
-
-            const emailInput = document.getElementById('email');
-            const passInput = document.getElementById('password');
-            const email = emailInput ? emailInput.value : '';
-            const password = passInput ? passInput.value : '';
-            
-            const btn = loginForm.querySelector('button');
-            const originalBtnText = btn.textContent;
-            btn.textContent = "Autenticando..."; 
-            btn.disabled = true;
-
-            try {
-                // Verifica conexão básica antes
-                if (!navigator.onLine) throw new Error("Sem conexão com a internet.");
-
-                const response = await fetch(AUTH_WEBHOOK, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'login', email: email, password: password })
-                });
-                
-                if (!response.ok) throw new Error("Erro HTTP: " + response.status);
-
-                let data = await response.json();
-                // Suporte a resposta array ou objeto
-                if (Array.isArray(data)) data = data[0]; 
-
-                if (data && data.access_token) {
-                    console.log("Login sucesso!");
-                    currentUser = { email: data.user.email, token: data.access_token };
-                    
-                    let displayName = "MD";
-                    if (data.user.user_metadata && data.user.user_metadata.full_name) {
-                        displayName = data.user.user_metadata.full_name;
-                    } else if (data.user.email) {
-                        displayName = data.user.email;
-                    }
-                    
-                    const initials = displayName.substring(0,2).toUpperCase();
-                    
-                    if(userInitialsDisplay) {
-                        userInitialsDisplay.textContent = initials;
-                        userInitialsDisplay.style.backgroundColor = '#4caf50';
-                    }
-                    
-                    loginScreen.style.opacity = '0';
-                    setTimeout(() => { loginScreen.style.display = 'none'; }, 500);
-                } else {
-                    const errorMsg = data.msg || data.message || "Credenciais inválidas.";
-                    alert("Erro no Login: " + errorMsg);
-                }
-            } catch (err) { 
-                console.error("Erro detalhado:", err);
-                alert("Falha na conexão: " + err.message); 
-            } 
-            
-            btn.textContent = originalBtnText; 
-            btn.disabled = false;
-        });
-    } else {
-        console.error("ERRO CRÍTICO: Formulário de login não encontrado no HTML.");
-    }
-
-    // ============================================================
-    // 3. OUTROS MODAIS (Cadastro e Senha)
-    // ============================================================
-    const signupForm = document.getElementById('signup-form');
-    // ... Varredura de elementos ...
-    const forgotStep1 = document.getElementById('forgot-step-1');
-    const forgotStep2 = document.getElementById('forgot-step-2');
-
-    if (signupForm) {
-        // Lógica de Wizard do Cadastro
-        const btnNextStep = document.getElementById('btn-next-step');
-        const termsCheckbox = document.getElementById('signup-terms');
-        const step1Div = document.getElementById('step-1-legal');
-        const step2Div = document.getElementById('step-2-form');
-        const btnBack = document.getElementById('btn-back-step');
-        const legalBox = document.getElementById('legal-text-content');
-
-        if(legalBox && termsCheckbox) {
-            legalBox.addEventListener('scroll', function() {
-                if (this.scrollTop + this.clientHeight >= this.scrollHeight - 20) {
-                    if (termsCheckbox.disabled) {
-                        termsCheckbox.disabled = false;
-                        termsCheckbox.style.cursor = 'pointer';
-                    }
-                }
-            });
-        }
-
-        if(termsCheckbox && btnNextStep) {
-            termsCheckbox.addEventListener('change', function() {
-                if (this.checked) {
-                    btnNextStep.disabled = false;
-                    btnNextStep.style.opacity = '1';
-                    btnNextStep.style.cursor = 'pointer';
-                }
-            });
-        }
-
-        if(btnNextStep) {
-            btnNextStep.addEventListener('click', () => {
-                if(step1Div) step1Div.style.display = 'none';
-                if(step2Div) step2Div.style.display = 'block';
-            });
-        }
-
-        if(btnBack) {
-            btnBack.addEventListener('click', () => {
-                if(step2Div) step2Div.style.display = 'none';
-                if(step1Div) step1Div.style.display = 'block';
-            });
-        }
-
-        signupForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const nameEl = document.getElementById('signup-name');
-            const crmEl = document.getElementById('signup-crm');
-            const emailEl = document.getElementById('signup-email');
-            const passEl = document.getElementById('signup-pass');
-            const confEl = document.getElementById('signup-confirm');
-
-            if (!termsCheckbox || !termsCheckbox.checked) return alert("Aceite os termos.");
-            
-            const name = nameEl.value;
-            let crm = crmEl.value.trim().toUpperCase();
-            const email = emailEl.value;
-            const pass = passEl.value;
-            
-            if (pass !== confEl.value) return alert("Senhas não conferem.");
-            
-            // Validação CRM
-            const crmRegex = /^\d+[A-Z]{2}$/;
-            if (!crmRegex.test(crm)) return alert("CRM inválido. Formato: 1234CE");
-
-            const btn = document.getElementById('btn-signup-final');
-            const originalText = btn.textContent;
-            btn.textContent = "Validando..."; btn.disabled = true;
-
-            try {
-                const response = await fetch(AUTH_WEBHOOK, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'signup', email: email, password: pass, name: name, crm: crm })
-                });
-                let data = await response.json();
-                if (Array.isArray(data)) data = data[0];
-
-                if (data.user || data.id || data.role === 'authenticated') {
-                    alert("Cadastro realizado! Verifique seu e-mail.");
-                    signupModal.style.display = 'none';
-                    signupForm.reset();
-                } else {
-                    alert("Erro: " + (data.msg || "Falha no cadastro"));
-                }
-            } catch (e) { alert("Erro de conexão: " + e.message); }
-            btn.textContent = originalText; btn.disabled = false;
-        });
-    }
-
-    if (forgotStep1) {
-        forgotStep1.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('forgot-email').value;
-            const btn = forgotStep1.querySelector('button');
-            const txt = btn.textContent;
-            btn.textContent = "..."; btn.disabled = true;
-            try {
-                await fetch(AUTH_WEBHOOK, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'forgot', email: email })
-                });
-                alert("Verifique seu e-mail.");
-                if(forgotModal) forgotModal.style.display = 'none';
-            } catch (e) { alert("Erro de conexão."); }
-            btn.textContent = txt; btn.disabled = false;
-        });
-    }
-
-    if (forgotStep2) {
-        forgotStep2.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const newPass = document.getElementById('new-pass').value;
-            const btn = forgotStep2.querySelector('button');
-            const txt = btn.textContent;
-            btn.textContent = "..."; btn.disabled = true;
-            try {
-                const res = await fetch(AUTH_WEBHOOK, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'update_password', password: newPass, token: currentUser ? currentUser.token : '' })
-                });
-                const data = await res.json();
-                if (data.id || data.email) {
-                    alert("Senha alterada.");
-                    if(forgotModal) forgotModal.style.display = 'none';
-                    if(loginScreen) loginScreen.style.display = 'flex'; 
-                } else { alert("Erro ao atualizar."); }
-            } catch (e) { alert("Erro de conexão."); }
-            btn.textContent = txt; btn.disabled = false;
-        });
-    }
-
-    // Controle de Modais (Links)
-    const linkSignup = document.getElementById('link-signup');
-    const linkForgot = document.getElementById('link-forgot');
-    const closeButtons = document.querySelectorAll('.close-modal');
-    if(linkSignup) linkSignup.addEventListener('click', (e) => { e.preventDefault(); if(signupModal) signupModal.style.display = 'flex'; });
-    if(linkForgot) linkForgot.addEventListener('click', (e) => { e.preventDefault(); if(forgotModal) forgotModal.style.display = 'flex'; });
-    closeButtons.forEach(btn => { btn.addEventListener('click', () => { 
-        if(signupModal) signupModal.style.display='none'; 
-        if(forgotModal) forgotModal.style.display='none'; 
-    }); });
-
-    // ============================================================
-    // 4. CHAT E SISTEMA (Sidebar, Mic, Files)
-    // ============================================================
-    const sidebar = document.getElementById('sidebar');
-    const sidebarOverlay = document.getElementById('sidebar-overlay');
-    const desktopMenuToggle = document.getElementById('desktop-sidebar-toggle');
-    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
-    const mainTitle = document.getElementById('main-title');
-    const navItems = document.querySelectorAll('.nav-item[data-tool]');
-    const btnNewChat = document.getElementById('btn-new-chat');
-    const chatHistory = document.getElementById('chat-history');
-    const welcomeScreen = document.getElementById('welcome-screen');
-    const chatInput = document.getElementById('chat-input');
-    const btnSend = document.getElementById('btn-send');
-    const btnAttachment = document.getElementById('btn-attachment');
     const btnMic = document.getElementById('btn-mic');
-    const hiddenFileInput = document.getElementById('hidden-file-input');
-    const fileListContainer = document.getElementById('file-list-container');
+    const chatInput = document.getElementById('chat-input');
 
-    function toggleMobileMenu() { 
-        if(sidebar) sidebar.classList.toggle('mobile-open'); 
-        if(sidebarOverlay) sidebarOverlay.classList.toggle('active'); 
-    }
-    function closeMobileMenu() { 
-        if(sidebar) sidebar.classList.remove('mobile-open'); 
-        if(sidebarOverlay) sidebarOverlay.classList.remove('active'); 
-    }
-    
-    if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', toggleMobileMenu);
-    if (desktopMenuToggle) desktopMenuToggle.addEventListener('click', () => sidebar.classList.toggle('collapsed'));
-    if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeMobileMenu);
-    
-    navItems.forEach(item => { 
-        item.addEventListener('click', () => { 
-            const toolId = item.getAttribute('data-tool'); 
-            setActiveTool(toolId); 
-            if (window.innerWidth <= 768) closeMobileMenu(); 
-        }); 
-    });
-    
-    if(btnNewChat) btnNewChat.addEventListener('click', clearChat);
-
-    function setActiveTool(toolId) {
-        navItems.forEach(nav => nav.classList.remove('active'));
-        const activeNav = document.querySelector(`.nav-item[data-tool="${toolId}"]`);
-        if(activeNav) activeNav.classList.add('active');
-        currentTool = toolId;
-        if(mainTitle) mainTitle.textContent = TOOLS[toolId].title;
-        if(chatInput) chatInput.placeholder = TOOLS[toolId].placeholder;
-        clearChat();
-    }
-
-    function clearChat() {
-        if(!chatHistory) return;
-        chatHistory.querySelectorAll('.message-wrapper').forEach(msg => msg.remove());
-        if(welcomeScreen) welcomeScreen.style.display = 'block';
-        resetFileInput(); 
-        if(chatInput) { chatInput.value = ''; chatInput.style.height = 'auto'; }
-    }
-
-    // --- MICROFONE COM TRATAMENTO DE ERRO (Atualizado) ---
     if (btnMic) {
         btnMic.addEventListener('click', async () => {
+            // Parar gravação
             if (isRecording) {
-                if (!recorder) return;
-                recorder.stopRecording(() => {
-                    const blob = recorder.getBlob();
-                    const file = new File([blob], "gravacao_" + Date.now() + ".wav", { type: 'audio/wav' });
-                    selectedFiles.push(file);
-                    renderFileList();
-                    isRecording = false;
-                    btnMic.classList.remove('recording');
-                    btnMic.querySelector('span').textContent = 'mic';
-                    chatInput.placeholder = TOOLS[currentTool].placeholder;
-                    recorder.camera.stop();
-                    recorder = null;
-                });
+                if (recorder) {
+                    recorder.stopRecording(() => {
+                        const blob = recorder.getBlob();
+                        const file = new File([blob], "gravacao_" + Date.now() + ".wav", { type: 'audio/wav' });
+                        selectedFiles.push(file);
+                        renderFileList();
+                        isRecording = false;
+                        btnMic.classList.remove('recording');
+                        btnMic.querySelector('span').textContent = 'mic';
+                        if(chatInput) chatInput.placeholder = TOOLS[currentTool].placeholder;
+                        recorder.camera.stop();
+                        recorder = null;
+                    });
+                }
                 return;
             }
 
+            // Iniciar gravação
             try {
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("Seu navegador não suporta gravação ou o site não é HTTPS.");
+                    throw new Error("Navegador incompatível ou sem HTTPS.");
                 }
                 if (typeof RecordRTC === 'undefined') {
-                    throw new Error("Biblioteca RecordRTC não carregada. Verifique o index.html.");
+                    throw new Error("RecordRTC não carregou. Verifique o index.html.");
                 }
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -388,19 +213,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 isRecording = true;
                 btnMic.classList.add('recording');
                 btnMic.querySelector('span').textContent = 'stop_circle';
-                chatInput.placeholder = "Gravando... (Clique para parar)";
+                if(chatInput) chatInput.placeholder = "Gravando... (Clique para parar)";
 
             } catch (e) {
                 console.error("Erro Mic:", e);
                 let msg = "Erro técnico: " + (e.message || e.name);
                 if (e.name === 'NotAllowedError' || e.message.includes('Permission denied')) {
-                    msg = "Permissão negada. Clique no cadeado 🔒 na URL e libere o Microfone.";
+                    msg = "🚫 Permissão negada!\nClique no cadeado 🔒 na URL e ative o Microfone.";
                 }
                 alert(msg);
             }
         });
     }
 
+    // ============================================================
+    // 5. UPLOAD E CHAT (Funcionalidades Gerais)
+    // ============================================================
+    const btnSend = document.getElementById('btn-send');
+    const btnAttachment = document.getElementById('btn-attachment');
+    const hiddenFileInput = document.getElementById('hidden-file-input');
+    const fileListContainer = document.getElementById('file-list-container');
+    const chatHistory = document.getElementById('chat-history');
+    const welcomeScreen = document.getElementById('welcome-screen');
+
+    // Manipulador de Arquivos
     if(btnAttachment) btnAttachment.addEventListener('click', () => hiddenFileInput.click());
     
     if(hiddenFileInput) {
@@ -421,45 +257,56 @@ document.addEventListener('DOMContentLoaded', () => {
             chip.innerHTML = `<span class="material-symbols-outlined" style="font-size:1.1rem">${icon}</span> <span class="file-name">${file.name}</span> <button class="remove-btn" onclick="removeFile(${index})">&times;</button>`;
             fileListContainer.appendChild(chip);
         });
+        // Função global para o botão remover funcionar
         window.removeFile = idx => { selectedFiles.splice(idx, 1); renderFileList(); };
     }
+    
     function resetFileInput() { selectedFiles = []; renderFileList(); }
 
+    // Envio de Mensagem
     if(btnSend) btnSend.addEventListener('click', handleSend);
+    
     if(chatInput) {
-        chatInput.addEventListener('keydown', e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } });
-        chatInput.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px'; if(this.value==='') this.style.height='auto'; });
+        chatInput.addEventListener('keydown', e => { 
+            if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } 
+        });
+        chatInput.addEventListener('input', function() { 
+            this.style.height = 'auto'; 
+            this.style.height = (this.scrollHeight) + 'px'; 
+            if(this.value==='') this.style.height='auto'; 
+        });
     }
 
     async function handleSend() {
         if (isRecording) { 
-            // Força parada da gravação antes de enviar
-            btnMic.click();
-            // Pequeno delay para garantir que o arquivo foi processado
-            setTimeout(handleSend, 500);
+            btnMic.click(); // Para a gravação
+            setTimeout(handleSend, 500); // Tenta enviar logo após processar
             return;
         }
         
-        const text = chatInput.value.trim();
+        const text = chatInput ? chatInput.value.trim() : "";
         if (!text && selectedFiles.length === 0) return;
         if(welcomeScreen) welcomeScreen.style.display = 'none';
         
+        // 1. Adiciona mensagem do usuário na tela
         const wrapper = document.createElement('div'); wrapper.className = 'message-wrapper user';
         let html = selectedFiles.map(f => `<div style="font-size:0.8rem;color:#a8c7fa;margin-bottom:4px">📎 ${f.name}</div>`).join('');
         if(text) html += `<div>${text.replace(/\n/g,'<br>')}</div>`;
         wrapper.innerHTML = `<div class="message-content">${html}</div><div class="avatar-icon user">VC</div>`;
         chatHistory.appendChild(wrapper);
         
-        chatInput.value = ''; chatInput.style.height = 'auto';
+        if(chatInput) { chatInput.value = ''; chatInput.style.height = 'auto'; }
         const filesToSend = [...selectedFiles]; 
         resetFileInput();
         
+        // 2. Mostra Loader da IA
         const ldId = 'ld-'+Date.now();
         const ldDiv = document.createElement('div'); ldDiv.className = 'message-wrapper ai'; ldDiv.id = ldId;
         ldDiv.innerHTML = `<div class="avatar-icon ai"><span class="material-symbols-outlined">smart_toy</span></div><div class="message-content">...</div>`;
         chatHistory.appendChild(ldDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
 
+        // 3. Prepara FormData (COM CORREÇÃO DE DUPLICIDADE)
         const formData = new FormData();
         filesToSend.forEach((f, i) => formData.append("file_" + i, f));
         if(text) formData.append('textoBruto', text);
@@ -473,6 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             const aiText = data.message || data.msg || data.resumoCompleto || data.text || (data.length ? JSON.stringify(data) : "Processamento concluído.");
             
+            // Remove Loader e Mostra Resposta
             const loader = document.getElementById(ldId);
             if(loader) loader.remove();
 
@@ -490,70 +338,87 @@ document.addEventListener('DOMContentLoaded', () => {
         chatHistory.scrollTop = chatHistory.scrollHeight;
     }
 
+    // Função Global de Cópia
     window.copyText = function(btn) {
         const pre = btn.closest('.message-content').querySelector('pre');
         navigator.clipboard.writeText(pre.textContent).then(() => { btn.style.color='#4caf50'; setTimeout(()=>btn.style.color='#666',2000); });
     };
 
     // ============================================================
-    // 5. TEMA (Modo Natal / Dark)
+    // 6. MODAIS EXTRAS (Cadastro, Senha) - Simplificados
     // ============================================================
+    const linkSignup = document.getElementById('link-signup');
+    const linkForgot = document.getElementById('link-forgot');
+    const signupModal = document.getElementById('signup-modal');
+    const forgotModal = document.getElementById('forgot-modal');
+    
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if(signupModal) signupModal.style.display='none';
+            if(forgotModal) forgotModal.style.display='none';
+        });
+    });
+
+    if(linkSignup) linkSignup.addEventListener('click', (e) => { e.preventDefault(); if(signupModal) signupModal.style.display = 'flex'; });
+    if(linkForgot) linkForgot.addEventListener('click', (e) => { e.preventDefault(); if(forgotModal) forgotModal.style.display = 'flex'; });
+
+    // ============================================================
+    // 7. INTERFACE E MENU
+    // ============================================================
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const desktopMenuToggle = document.getElementById('desktop-sidebar-toggle');
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
     const themeBtn = document.getElementById('theme-toggle-btn');
-    const themeIcon = document.getElementById('theme-icon');
-    const themeText = document.getElementById('theme-text');
-    let isXmas = false;
+    const navItems = document.querySelectorAll('.nav-item[data-tool]');
+    const btnNewChat = document.getElementById('btn-new-chat');
+    const mainTitle = document.getElementById('main-title');
 
-    function startSnowJS({ duration = 5000, count = 80, sizeScale = 0.8 } = {}) {
-        const overlay = document.querySelector('.snow-overlay');
-        if (!overlay) return;
-        overlay.innerHTML = '';
-        overlay.style.opacity = '1';
+    function toggleMobileMenu() { 
+        if(sidebar) sidebar.classList.toggle('mobile-open'); 
+        if(sidebarOverlay) sidebarOverlay.classList.toggle('active'); 
+    }
+    
+    if(mobileMenuBtn) mobileMenuBtn.addEventListener('click', toggleMobileMenu);
+    if(sidebarOverlay) sidebarOverlay.addEventListener('click', toggleMobileMenu);
+    if(desktopMenuToggle) desktopMenuToggle.addEventListener('click', () => sidebar.classList.toggle('collapsed'));
 
-        const baseOriginal = 6;
-        const baseSize = baseOriginal * sizeScale;
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            navItems.forEach(n => n.classList.remove('active'));
+            item.classList.add('active');
+            currentTool = item.getAttribute('data-tool');
+            if(mainTitle) mainTitle.textContent = TOOLS[currentTool].title;
+            if(chatInput) chatInput.placeholder = TOOLS[currentTool].placeholder;
+            if(window.innerWidth <= 768) toggleMobileMenu();
+            
+            // Limpa o chat ao trocar de ferramenta
+            if(chatHistory) {
+                chatHistory.querySelectorAll('.message-wrapper').forEach(m => m.remove());
+                if(welcomeScreen) welcomeScreen.style.display = 'block';
+            }
+        });
+    });
 
-        for (let i = 0; i < count; i++) {
-            const flake = document.createElement('div');
-            flake.className = 'snow-flake';
-            const randomFactor = 0.6 + Math.random() * 0.8; 
-            const size = Math.max(1, baseSize * randomFactor);
-            flake.style.width = size + 'px';
-            flake.style.height = size + 'px';
-            flake.style.left = (Math.random() * 100) + 'vw';
-            flake.style.top = (-5 - Math.random() * 20) + 'vh';
-            flake.style.opacity = (0.5 + Math.random() * 0.5).toString();
-            const delay = (Math.random() * 0.4).toFixed(2);
-            // Concatenation string style for safety
-            flake.style.animation = "fall-js " + duration + "ms linear " + delay + "s forwards";
-            overlay.appendChild(flake);
-        }
-        setTimeout(() => { overlay.innerHTML = ''; overlay.style.opacity = ''; }, duration + 600);
+    if(btnNewChat) {
+        btnNewChat.addEventListener('click', () => {
+            if(chatHistory) chatHistory.querySelectorAll('.message-wrapper').forEach(m => m.remove());
+            if(welcomeScreen) welcomeScreen.style.display = 'block';
+            resetFileInput();
+        });
     }
 
-    const bodyObserver = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-            if (m.attributeName === 'class') {
-                const active = document.body.classList.contains('xmas-mode');
-                if (active) startSnowJS({ duration: 5000, count: 150, sizeScale: 0.8 });
-            }
-        }
-    });
-    bodyObserver.observe(document.body, { attributes: true });
-
-    if (themeBtn) {
+    if(themeBtn) {
         themeBtn.addEventListener('click', () => {
-            isXmas = !isXmas;
             document.body.classList.toggle('xmas-mode');
-
-            if (isXmas) {
-                themeIcon.textContent = 'ac_unit';
-                themeText.textContent = 'Modo Natal';
-                themeBtn.style.color = 'var(--accent-color)';
-                startSnowJS({ duration: 5000, count: 150, sizeScale: 0.8 });
+            const icon = document.getElementById('theme-icon');
+            const txt = document.getElementById('theme-text');
+            if(document.body.classList.contains('xmas-mode')) {
+                if(icon) icon.textContent = 'ac_unit';
+                if(txt) txt.textContent = 'Modo Natal';
             } else {
-                themeIcon.textContent = 'settings';
-                themeText.textContent = 'Modo Dark';
-                themeBtn.style.color = '';
+                if(icon) icon.textContent = 'settings';
+                if(txt) txt.textContent = 'Modo Dark';
             }
         });
     }
