@@ -6,23 +6,22 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
         alert('Script Error: Verifique o Console (F12) para detalhes.');
     } else {
         console.error("Erro Detectado:", msg, "Linha:", lineNo);
-        // Descomente a linha abaixo se quiser ver o erro na tela:
-        // alert("Erro no Script: " + msg + "\nLinha: " + lineNo);
     }
     return false;
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("✅ Script Carregado com Sucesso v3.0 (Diagnóstico)");
+    console.log("✅ Script Carregado com Sucesso v3.1 (Gemini Fix)");
 
     // ============================================================
     // 1. CONFIGURAÇÕES
     // ============================================================
-    // Usando concatenação simples (+) para máxima compatibilidade
     const BASE_URL = "https://plantonista50-playground-n8n.zvu2si.easypanel.host";
     const AUTH_WEBHOOK = BASE_URL + "/webhook/suga-auth";
     const PRONTUARIO_WEBHOOK = BASE_URL + "/webhook/cfadce39-4d13-4a1e-ac7d-24ed345a5e9c";
     const EXAMINATOR_WEBHOOK = BASE_URL + "/webhook/processar-exame";
+    // ATENÇÃO: Verifique se este endpoint do Chat está correto com seu novo fluxo do Gemini
+    const CHAT_WEBHOOK = BASE_URL + "/webhook/suga-chat-secure"; 
 
     const TOOLS = {
         prontuario: { 
@@ -35,6 +34,12 @@ document.addEventListener('DOMContentLoaded', () => {
             webhook: EXAMINATOR_WEBHOOK, 
             placeholder: "Anexe os exames (PDF/Imagem) para análise..." 
         },
+        // Adicionando ferramenta de chat caso esteja usando
+        brainstorm: {
+            title: "SuGa BRAINSTORM",
+            webhook: CHAT_WEBHOOK,
+            placeholder: "Discuta casos clínicos com o Gemini..."
+        }
     };
 
     // Variáveis de Estado
@@ -44,13 +49,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let recorder = null; 
     let isRecording = false;
 
-    // Elementos DOM (com verificação de segurança)
+    // Elementos DOM
     const loginScreen = document.getElementById('login-screen');
     const loginForm = document.getElementById('login-form');
     const userInitialsDisplay = document.getElementById('user-initials');
     
     // ============================================================
-    // 2. SISTEMA DE LOGIN (Recuperado)
+    // 2. SISTEMA DE LOGIN
     // ============================================================
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
@@ -71,14 +76,12 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = true;
 
             try {
-                // 1. Monta os dados
                 const payload = { 
                     action: 'login', 
                     email: emailEl.value.trim(), 
                     password: passEl.value 
                 };
 
-                // 2. Envia para o n8n
                 console.log("📡 Enviando requisição para:", AUTH_WEBHOOK);
                 const response = await fetch(AUTH_WEBHOOK, {
                     method: 'POST',
@@ -86,22 +89,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify(payload)
                 });
 
-                // 3. Trata a resposta
+                // Tratamento Defensivo de JSON no Login
+                const textData = await response.text();
+                let data;
+                try {
+                    data = textData ? JSON.parse(textData) : {};
+                } catch (err) {
+                    console.error("Erro JSON Login:", textData);
+                    throw new Error("Servidor retornou resposta inválida.");
+                }
+
                 if (!response.ok) {
                     throw new Error("Erro HTTP: " + response.status);
                 }
 
-                let data = await response.json();
-                if (Array.isArray(data)) data = data[0]; // Trata retorno de lista do n8n
+                if (Array.isArray(data)) data = data[0];
 
-                console.log("📥 Resposta recebida:", data);
-
-                // 4. Verifica sucesso
                 if (data && data.access_token) {
-                    // SUCESSO!
                     currentUser = { email: data.user.email, token: data.access_token };
                     
-                    // Atualiza UI
                     let displayName = "MD";
                     if (data.user.user_metadata && data.user.user_metadata.full_name) {
                         displayName = data.user.user_metadata.full_name;
@@ -111,42 +117,37 @@ document.addEventListener('DOMContentLoaded', () => {
                         userInitialsDisplay.style.backgroundColor = '#4caf50';
                     }
 
-                    // Esconde Login
                     if (loginScreen) {
                         loginScreen.style.opacity = '0';
                         setTimeout(() => { loginScreen.style.display = 'none'; }, 500);
                     }
                 } else {
-                    // ERRO DE NEGÓCIO (Senha errada, etc)
                     const errorMsg = data.msg || data.message || "Email ou senha incorretos.";
                     alert("Acesso Negado: " + errorMsg);
                 }
 
             } catch (err) {
                 console.error("❌ Erro no Login:", err);
-                alert("Erro de Conexão: " + err.message + "\nVerifique se o n8n está ativo.");
+                alert("Erro de Conexão: " + err.message);
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
             }
         });
-    } else {
-        console.error("⚠️ ERRO CRÍTICO: Formulário de login (id='login-form') não encontrado!");
     }
 
     // ============================================================
-    // 3. LÓGICA DE URL MÁGICA (Recuperação de Senha)
+    // 3. LÓGICA DE URL MÁGICA
     // ============================================================
     const hash = window.location.hash;
     if (hash && hash.includes('access_token')) {
-        console.log("🔗 Token de acesso detectado na URL");
         const params = new URLSearchParams(hash.substring(1)); 
         const accessToken = params.get('access_token');
         const type = params.get('type'); 
 
         if (accessToken) {
             currentUser = { email: "Verificado", token: accessToken };
-            window.history.replaceState(null, null, window.location.pathname); // Limpa URL
+            window.history.replaceState(null, null, window.location.pathname);
 
             const forgotModal = document.getElementById('forgot-modal');
             const forgotStep1 = document.getElementById('forgot-step-1');
@@ -167,14 +168,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ============================================================
-    // 4. MICROFONE (Corrigido e Diagnosticado)
+    // 4. MICROFONE
     // ============================================================
     const btnMic = document.getElementById('btn-mic');
     const chatInput = document.getElementById('chat-input');
 
     if (btnMic) {
         btnMic.addEventListener('click', async () => {
-            // Parar gravação
             if (isRecording) {
                 if (recorder) {
                     recorder.stopRecording(() => {
@@ -193,13 +193,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Iniciar gravação
             try {
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                     throw new Error("Navegador incompatível ou sem HTTPS.");
                 }
                 if (typeof RecordRTC === 'undefined') {
-                    throw new Error("RecordRTC não carregou. Verifique o index.html.");
+                    throw new Error("RecordRTC não carregou.");
                 }
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -217,17 +216,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (e) {
                 console.error("Erro Mic:", e);
-                let msg = "Erro técnico: " + (e.message || e.name);
-                if (e.name === 'NotAllowedError' || e.message.includes('Permission denied')) {
-                    msg = "🚫 Permissão negada!\nClique no cadeado 🔒 na URL e ative o Microfone.";
-                }
-                alert(msg);
+                alert("Erro ao acessar microfone: " + e.message);
             }
         });
     }
 
     // ============================================================
-    // 5. UPLOAD E CHAT (Funcionalidades Gerais)
+    // 5. UPLOAD E CHAT (AQUI ESTÁ A CORREÇÃO CRÍTICA)
     // ============================================================
     const btnSend = document.getElementById('btn-send');
     const btnAttachment = document.getElementById('btn-attachment');
@@ -236,7 +231,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatHistory = document.getElementById('chat-history');
     const welcomeScreen = document.getElementById('welcome-screen');
 
-    // Manipulador de Arquivos
     if(btnAttachment) btnAttachment.addEventListener('click', () => hiddenFileInput.click());
     
     if(hiddenFileInput) {
@@ -257,13 +251,11 @@ document.addEventListener('DOMContentLoaded', () => {
             chip.innerHTML = `<span class="material-symbols-outlined" style="font-size:1.1rem">${icon}</span> <span class="file-name">${file.name}</span> <button class="remove-btn" onclick="removeFile(${index})">&times;</button>`;
             fileListContainer.appendChild(chip);
         });
-        // Função global para o botão remover funcionar
         window.removeFile = idx => { selectedFiles.splice(idx, 1); renderFileList(); };
     }
     
     function resetFileInput() { selectedFiles = []; renderFileList(); }
 
-    // Envio de Mensagem
     if(btnSend) btnSend.addEventListener('click', handleSend);
     
     if(chatInput) {
@@ -277,10 +269,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- FUNÇÃO HANDLESEND CORRIGIDA ---
     async function handleSend() {
         if (isRecording) { 
-            btnMic.click(); // Para a gravação
-            setTimeout(handleSend, 500); // Tenta enviar logo após processar
+            btnMic.click(); 
+            setTimeout(handleSend, 500); 
             return;
         }
         
@@ -288,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text && selectedFiles.length === 0) return;
         if(welcomeScreen) welcomeScreen.style.display = 'none';
         
-        // 1. Adiciona mensagem do usuário na tela
+        // 1. UI: Mensagem do Usuário
         const wrapper = document.createElement('div'); wrapper.className = 'message-wrapper user';
         let html = selectedFiles.map(f => `<div style="font-size:0.8rem;color:#a8c7fa;margin-bottom:4px">📎 ${f.name}</div>`).join('');
         if(text) html += `<div>${text.replace(/\n/g,'<br>')}</div>`;
@@ -299,40 +292,71 @@ document.addEventListener('DOMContentLoaded', () => {
         const filesToSend = [...selectedFiles]; 
         resetFileInput();
         
-        // 2. Mostra Loader da IA
+        // 2. UI: Loader
         const ldId = 'ld-'+Date.now();
         const ldDiv = document.createElement('div'); ldDiv.className = 'message-wrapper ai'; ldDiv.id = ldId;
         ldDiv.innerHTML = `<div class="avatar-icon ai"><span class="material-symbols-outlined">smart_toy</span></div><div class="message-content">...</div>`;
         chatHistory.appendChild(ldDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
 
-        // 3. Prepara FormData (COM CORREÇÃO DE DUPLICIDADE)
+        // 3. Preparação do Envio
         const formData = new FormData();
         filesToSend.forEach((f, i) => formData.append("file_" + i, f));
         if(text) formData.append('textoBruto', text);
         const userEmail = currentUser ? currentUser.email : "anonimo_erro";
-        formData.append('user_email', userEmail); 
+        formData.append('user_email', userEmail);
+        
+        // Para o Chat, adicionamos IDs de sessão se necessário
+        if (currentTool === 'brainstorm') {
+            formData.append('user_message', text);
+            // Idealmente gerar um session_id fixo por conversa, aqui um simples para teste
+            formData.append('session_id', 'sessao_' + userEmail); 
+        }
 
         try {
+            console.log("Enviando para:", TOOLS[currentTool].webhook);
             const res = await fetch(TOOLS[currentTool].webhook, { method: 'POST', body: formData });
-            if (!res.ok) throw new Error("Erro Servidor: " + res.status);
             
-            const data = await res.json();
-            const aiText = data.message || data.msg || data.resumoCompleto || data.text || (data.length ? JSON.stringify(data) : "Processamento concluído.");
+            // --- CORREÇÃO CRÍTICA AQUI: LER COMO TEXTO PRIMEIRO ---
+            const rawText = await res.text();
+            console.log("Resposta Bruta do Servidor:", rawText);
+
+            if (!res.ok) {
+                throw new Error(`Erro HTTP ${res.status}: ${rawText.substring(0, 100)}...`);
+            }
+
+            let data = {};
+            try {
+                // Tenta converter se não estiver vazio
+                if (rawText.trim()) {
+                    data = JSON.parse(rawText);
+                } else {
+                    throw new Error("Resposta vazia do n8n");
+                }
+            } catch (jsonErr) {
+                console.warn("Falha no parse JSON. Usando texto bruto.");
+                // Se falhar o JSON, tenta usar o texto bruto como resposta (fallback)
+                data = { message: rawText };
+            }
+
+            // Normaliza a resposta da IA (Vários nós retornam campos diferentes)
+            const aiText = data.reply || data.message || data.msg || data.resumoCompleto || data.text || data.output || JSON.stringify(data);
             
-            // Remove Loader e Mostra Resposta
+            // 4. UI: Exibe Resposta
             const loader = document.getElementById(ldId);
             if(loader) loader.remove();
 
             const aiWrapper = document.createElement('div'); aiWrapper.className = 'message-wrapper ai';
             aiWrapper.innerHTML = `<div class="avatar-icon ai"><span class="material-symbols-outlined">smart_toy</span></div><div class="message-content"><pre>${aiText}</pre><div style="text-align:right"><span class="material-symbols-outlined" style="cursor:pointer;color:#666" onclick="copyText(this)">content_copy</span></div></div>`;
             chatHistory.appendChild(aiWrapper);
+
         } catch (e) {
+            console.error(e);
             const loader = document.getElementById(ldId);
             if(loader) loader.remove();
             
             const errDiv = document.createElement('div'); errDiv.className = 'message-wrapper ai';
-            errDiv.innerHTML = `<div class="avatar-icon ai">⚠️</div><div class="message-content">Erro: ${e.message}</div>`;
+            errDiv.innerHTML = `<div class="avatar-icon ai">⚠️</div><div class="message-content"><strong>Erro:</strong> ${e.message}<br><small>Verifique se o n8n está ativo e o nó 'Respond to Webhook' configurado corretamente.</small></div>`;
             chatHistory.appendChild(errDiv);
         }
         chatHistory.scrollTop = chatHistory.scrollHeight;
@@ -345,7 +369,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ============================================================
-    // 6. MODAIS EXTRAS (Cadastro, Senha) - Simplificados
+    // 6. MENU E TEMA
     // ============================================================
     const linkSignup = document.getElementById('link-signup');
     const linkForgot = document.getElementById('link-forgot');
@@ -362,9 +386,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if(linkSignup) linkSignup.addEventListener('click', (e) => { e.preventDefault(); if(signupModal) signupModal.style.display = 'flex'; });
     if(linkForgot) linkForgot.addEventListener('click', (e) => { e.preventDefault(); if(forgotModal) forgotModal.style.display = 'flex'; });
 
-    // ============================================================
-    // 7. INTERFACE E MENU
-    // ============================================================
     const sidebar = document.getElementById('sidebar');
     const sidebarOverlay = document.getElementById('sidebar-overlay');
     const desktopMenuToggle = document.getElementById('desktop-sidebar-toggle');
@@ -392,7 +413,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if(chatInput) chatInput.placeholder = TOOLS[currentTool].placeholder;
             if(window.innerWidth <= 768) toggleMobileMenu();
             
-            // Limpa o chat ao trocar de ferramenta
             if(chatHistory) {
                 chatHistory.querySelectorAll('.message-wrapper').forEach(m => m.remove());
                 if(welcomeScreen) welcomeScreen.style.display = 'block';
@@ -411,15 +431,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if(themeBtn) {
         themeBtn.addEventListener('click', () => {
             document.body.classList.toggle('xmas-mode');
-            const icon = document.getElementById('theme-icon');
-            const txt = document.getElementById('theme-text');
-            if(document.body.classList.contains('xmas-mode')) {
-                if(icon) icon.textContent = 'ac_unit';
-                if(txt) txt.textContent = 'Modo Natal';
-            } else {
-                if(icon) icon.textContent = 'settings';
-                if(txt) txt.textContent = 'Modo Dark';
-            }
         });
     }
 });
