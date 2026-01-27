@@ -290,5 +290,51 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     if(btnNewChat) btnNewChat.addEventListener('click', () => { if(chatHistory) chatHistory.innerHTML = ''; welcomeScreen.style.display = 'block'; });
-    if(themeBtn) themeBtn.addEventListener('click', () => document.body.classList.toggle('xmas-mode'));
+
+    // ============================================================
+    // 7. EFEITO DE NEVE (XMAS MODE)
+    // ============================================================
+    let snowInterval;
+    function startSnowfall() {
+        let overlay = document.querySelector('.snow-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'snow-overlay';
+            overlay.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(overlay);
+        }
+
+        // Cria um floco a cada 100ms
+        snowInterval = setInterval(() => {
+            const flake = document.createElement('div');
+            flake.classList.add('snow-flake');
+            flake.style.left = Math.random() * 100 + 'vw';
+            flake.style.animationDuration = (Math.random() * 3 + 2) + 's'; // 2 a 5 segundos
+            flake.style.opacity = Math.random();
+            const size = Math.random() * 5 + 5; // 5 a 10px
+            flake.style.width = size + 'px';
+            flake.style.height = size + 'px';
+            flake.style.animationName = 'fall-js'; // Nome da animação no CSS
+
+            overlay.appendChild(flake);
+
+            // Remove o elemento após a animação
+            setTimeout(() => { flake.remove(); }, 5000);
+        }, 100);
+    }
+
+    function stopSnowfall() {
+        clearInterval(snowInterval);
+        const overlay = document.querySelector('.snow-overlay');
+        if (overlay) overlay.innerHTML = '';
+    }
+
+    if(themeBtn) themeBtn.addEventListener('click', () => {
+        document.body.classList.toggle('xmas-mode');
+        if (document.body.classList.contains('xmas-mode')) {
+            startSnowfall();
+        } else {
+            stopSnowfall();
+        }
+    });
 });
